@@ -1,9 +1,4 @@
 # CliffordCircuits
 
-Implementing Aaronson and Gottesmann's tableau algorithm for simulating Clifford circuits with the intended application being to study measurement induced transitions in stabilizer codes.
-
-To Do:
-- Reformat into Modules
-- Add iPython Notebook for demo + plots
-- Look at how to speed up the code.
-- Maybe implement a tableau struct so that the code is more readable
+Efficient simulation of Clifford Circuits via the Gottesman-Knill theorem, using the tableau representation presented by [Aaronson and Gottesman (2004)](https://arxiv.org/abs/quant-ph/0406196).
+The intended application here is to study measurement-induced entanglement transitions in stabilizer codes.
