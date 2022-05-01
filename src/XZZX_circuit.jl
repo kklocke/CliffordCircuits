@@ -190,6 +190,59 @@ function run_circuit(n::Int, pX::Float64, pY::Float64, pZ::Float64, sat_steps::I
 end
 
 """
+    run_circuit_stab_length(n, pX, pY, pZ, sat_steps, avg_steps, avg_interval, PBC=PBC)
+
+Run a simulation of an n-qubit measurement-only XZZX circuit. Error measurement
+probabilities are given by pX, pY, pZ. The circuit is run for sat_step layers
+to reach the steady state. In the steady state, avg_step layers are averaged
+over, with avg_interval layers between each value recorded. Boundary conditions
+are set by optional argument PBC.
+
+Circuit structure is alternating between stabilizer layers and error layers.
+
+Returns the average distribution of stabilizer lengths in the steady state.
+"""
+function run_circuit_stab_length(n::Int, pX::Float64, pY::Float64, pZ::Float64, sat_steps::Int, avg_steps::Int, avg_interval::Int; PBC=true)
+    pStab = 1 - pX - pY - pZ
+
+    stab_list = [site_to_op(i, n) for i = 1:n]
+
+    my_tableau = initialize_tableau(n)
+
+    # Alternating layer circuit evolution to reach the steady state
+    step_num = 0
+    for i=1:sat_steps
+        if step_num % 2 == 0
+            update_circuit_stabilizers!(my_tableau, stab_list, n, pStab, PBC=PBC)
+        else
+            update_circuit_errors!(my_tableau, n, pX, pY, pZ)
+        end
+        step_num += 1
+    end
+
+    # Compute the average entanglement measures in the steady state
+    avg_stab_lens = zeros(n)
+    for i = 1:avg_steps
+        stab_lens = tableau_to_stab_lengths(my_tableau, n)
+        for j = 1:n
+            avg_stab_lens[j] += count(stab_lens .== j)
+        end
+        for j = 1:avg_interval
+            if step_num % 2 == 0
+                update_circuit_stabilizers!(my_tableau, stab_list, n, pStab, PBC=PBC)
+            else
+                update_circuit_errors!(my_tableau, n, pX, pY, pZ)
+            end
+            step_num += 1
+        end
+    end
+
+    avg_stab_lens ./= avg_steps
+
+    return avg_stab_lens
+end
+
+"""
     run_circuit_single_layer(n, pX, pY, pZ, sat_steps, avg_steps, avg_interval, PBC=PBC)
 
 Run a simulation of an n-qubit measurement-only XZZX circuit. Error measurement
@@ -361,4 +414,37 @@ function purify_mixed_state(n::Int, pX::Float64, pY::Float64, pZ::Float64, Tmax:
     end
 
     return data_history
+end
+
+"""
+    purify_stab_length(n, pX, pY, pZ, Tmax, PBC=PBC)
+
+Run a simulation for Tmax layers on an n-qubit measurement-only XZZX circuit.
+Starting from an initial maximally mixed state. Probabilities pX, pY, pZ and
+boundary conditions PBC control the update for the circuit. At the end time,
+the lengths of the purified stabilizers are recorded.
+
+Circuit structure is alternating between stabilizer layers and error layers.
+"""
+function purify_stab_length(n::Int, pX::Float64, pY::Float64, pZ::Float64, Tmax::Int; PBC=false)
+    pStab = 1. - pX - pY - pZ
+
+    stab_list = [site_to_op(i, n) for i = 1:n]
+
+    my_tableau = initialize_tableau(n)
+
+    # Prepare a maximally mixed initial state
+    for i = 1:n
+        dephase_x!(my_tableau, i, n)
+    end
+
+    for i = 1:Tmax
+        if i % 2 == 1
+            update_circuit_stabilizers!(my_tableau, stab_list, n, pStab, PBC=PBC)
+        else
+            update_circuit_errors!(my_tableau, n, pX, pY, pZ)
+        end
+    end
+
+    return tableau_to_stab_lengths(my_tableau, n)
 end
