@@ -128,7 +128,7 @@ function Z2_gaussian_eliminate(stab,n)
     M = falses(num_stabs,2*n)
     M[:,1:2:2*n] = stab[:,1:n]
     M[:,2:2:2*n] = stab[:,(n+1):(2*n)]
-    
+
     i = 1
     for j = 1:2*n
         p = findfirst(M[i:num_stabs, j])
@@ -170,25 +170,25 @@ function clipping_gauge(stab, n)
     if num_stabs <= 1
         return stab
     end
-    
+
     new_stab = Z2_gaussian_eliminate(stab, n)
     @assert num_stabs == size(new_stab)[1]
-    
+
     M = falses(num_stabs,2*n)
     M[:,1:2:2*n] = new_stab[:,1:n]
     M[:,2:2:2*n] = new_stab[:,(n+1):(2*n)]
-    
+
     i = 1
     for j = 2n:-1:1
         if i > num_stabs
             break
         end
-        
+
         s = sum(M,dims=2)
         if any(s .== 0)
             throw(ErrorException("At least one row is empty"))
         end
-        
+
         p = findall(M[i:num_stabs,j])
         if length(p) == 0
             continue
@@ -203,8 +203,8 @@ function clipping_gauge(stab, n)
         end
 
         p = p .+ (i-1)
-        
-        # find shortest 
+
+        # find shortest
         indShortest = -1
         lMax = -1
         for ind in p
@@ -217,11 +217,11 @@ function clipping_gauge(stab, n)
         if indShortest < 1
             throw(ErrorException("Invalid index for shortest stabilizer"))
         end
-        
+
         tmp = copy(M[i,:])
         M[i,:] .= M[indShortest, :]
         M[indShortest, :] .= tmp
-        
+
         for k = (i+1):num_stabs
             if M[k,j] == 1 && i != k
                 if M[k,:] == M[i,:]
@@ -230,7 +230,7 @@ function clipping_gauge(stab, n)
                 M[k,:] .= (M[k,:] .⊻ M[i,:])
             end
         end
-        
+
         i += 1
 
     end
@@ -252,14 +252,21 @@ end
 For an n-qubit stabilizer state specified by the tableau,
 convert to the clipping gauge and then compute the stabilizer
 lengths.
+
+Optional parameter pure (boolean) determines whether we are returning
+the lengths of the stabilizers (pure) or the generators of the mixed space.
 """
-function tableau_to_stab_lengths(t, n)
-    
+function tableau_to_stab_lengths(t, n; pure=true)
+
     stab = copy(t[(n+1):(2n), :])
-    is_pure = (stab[:,2n+2] .== 0)
-    stab = stab[is_pure, 1:(2n)]
+    if pure
+        mask = (stab[:,2n+2] .== 0)
+    else
+        mask = (stab[:,2n+2] .== 1)
+    end
+    stab = stab[mask, 1:(2n)]
     num_stabs = size(stab)[1]
-    
+
     stab = clipping_gauge(stab, n)
 
     xAll = stab[:, 1:n]
@@ -267,7 +274,31 @@ function tableau_to_stab_lengths(t, n)
     vals = xAll .| zAll
     lefts = [findfirst(vals[i,:]) for i = 1:num_stabs]
     rights = [findlast(vals[i,:]) for i = 1:num_stabs]
-    
+
     stab_lens = rights .- lefts .+ 1
     return stab_lens
+end
+
+"""
+    tableau_to_stab_ends(t,n)
+For an n-qubit stabilizer state specified by the tableau, convert to the
+clipping gauge and then compute the density of stabilizer endpoints.
+"""
+function tableau_to_stab_ends(t, n)
+
+    stab = copy(t[(n+1):(2n), :])
+    is_pure = (stab[:,2n+2] .== 0)
+    stab = stab[is_pure, 1:(2n)]
+    num_stabs = size(stab)[1]
+
+    stab = clipping_gauge(stab, n)
+
+    xAll = stab[:, 1:n]
+    zAll = stab[:, (n+1):(2*n)]
+    vals = xAll .| zAll
+    lefts = [findfirst(vals[i,:]) for i = 1:num_stabs]
+    rights = [findlast(vals[i,:]) for i = 1:num_stabs]
+
+    endpoints_density = [count(lefts .== i) + count(rights .== i) for i = 1:n]
+    return endpoint_density
 end
