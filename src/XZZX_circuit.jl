@@ -446,5 +446,150 @@ function purify_stab_length(n::Int, pX::Float64, pY::Float64, pZ::Float64, Tmax:
         end
     end
 
-    return tableau_to_stab_lengths(my_tableau, n)
+    ls = tableau_to_stab_lengths(my_tableau, n)
+    res = [count(ls .== i) for i = 1:n]
+    return res
+end
+
+"""
+    purify_stab_length(n, pX, pY, pZ, Tmax, PBC=PBC)
+
+Run a simulation for Tmax layers on an n-qubit measurement-only XZZX circuit.
+Starting from an initial maximally mixed state. Probabilities pX, pY, pZ and
+boundary conditions PBC control the update for the circuit. At the end time,
+the lengths of the purified stabilizers are recorded.
+
+Circuit structure is alternating between stabilizer layers and error layers.
+"""
+function purify_stab_length_Ts(n::Int, pX::Float64, pY::Float64, pZ::Float64, Tvals; PBC=false, pure=true)
+    pStab = 1. - pX - pY - pZ
+
+    stab_list = [site_to_op(i, n) for i = 1:n]
+
+    my_tableau = initialize_tableau(n)
+
+    # Prepare a maximally mixed initial state
+    for i = 1:n
+        dephase_x!(my_tableau, i, n)
+    end
+
+    Tmax = Tvals[end] + 1
+
+    res = zeros(length(Tvals), n)
+
+    for i = 1:Tmax
+        if i % 2 == 1
+            update_circuit_stabilizers!(my_tableau, stab_list, n, pStab, PBC=PBC)
+        else
+            update_circuit_errors!(my_tableau, n, pX, pY, pZ)
+        end
+        if i in Tvals
+            ind = findfirst(Tvals .== i)
+            ls = tableau_to_stab_lengths(my_tableau, n, pure=pure)
+            res[ind,:] .= [count(ls .== l) for l = 1:n]
+        end
+    end
+
+    return res
+end
+
+
+
+#### Helper functions for testing theory about z* ####
+
+function run_circuit_alt(n::Int, pX::Float64, pY::Float64, pZ::Float64, pStab::Float64, sat_steps::Int, avg_steps::Int, avg_interval::Int; PBC=true)
+
+    stab_list = [site_to_op(i, n) for i = 1:n]
+
+    my_tableau = initialize_tableau(n)
+
+    # Alternating layer circuit evolution to reach the steady state
+    step_num = 0
+    for i=1:sat_steps
+        if step_num % 2 == 0
+            update_circuit_stabilizers!(my_tableau, stab_list, n, pStab, PBC=PBC)
+        else
+            update_circuit_errors!(my_tableau, n, pX, pY, pZ)
+        end
+        step_num += 1
+    end
+
+    # Compute the average entanglement measures in the steady state
+    data_history = zeros(avg_steps, 5)
+    for i = 1:avg_steps
+        data_history[i,1] = compute_bipartite_EE(copy(my_tableau), n)
+        data_history[i,2] = compute_antipodal_mutual(copy(my_tableau), n)
+        data_history[i,3] = compute_Stopo_c(copy(my_tableau), n)
+        data_history[i,4] = compute_Stopo_t(copy(my_tableau), n)
+        data_history[i,5] = compute_Stopo_q(copy(my_tableau), n)
+        for j = 1:avg_interval
+            if step_num % 2 == 0
+                update_circuit_stabilizers!(my_tableau, stab_list, n, pStab, PBC=PBC)
+            else
+                update_circuit_errors!(my_tableau, n, pX, pY, pZ)
+            end
+            step_num += 1
+        end
+    end
+
+    mean_data = mean(data_history,dims=1)[1,:]
+
+    return mean_data
+end
+
+function purify_mixed_state_alt(n::Int, pX::Float64, pY::Float64, pZ::Float64, pStab::Float64, Tmax::Int; PBC=false)
+
+    stab_list = [site_to_op(i, n) for i = 1:n]
+
+    my_tableau = initialize_tableau(n)
+
+    # Prepare a maximally mixed initial state
+    for i = 1:n
+        dephase_x!(my_tableau, i, n)
+    end
+
+    # Evolve the circuiit and save the residual entropy density and purity.
+    data_history = zeros(Tmax, 2)
+    data_history[:,1] .= 1. # Default for when break condition is reached
+    for i = 1:Tmax
+        data_history[i,2] = compute_residual_entropy(my_tableau, n)
+        data_history[i,1] = 2 .^ (-data_history[i,2])
+        if i % 2 == 1
+            update_circuit_stabilizers!(my_tableau, stab_list, n, pStab, PBC=PBC)
+        else
+            update_circuit_errors!(my_tableau, n, pX, pY, pZ)
+        end
+        # Break if the state is fully purified
+        if data_history[i,2] == 0
+            break
+        end
+    end
+
+    return data_history
+end
+
+
+"""
+    XZZX_rotation_gate!(t, site, n)
+
+For an n-qubit stabilizer state given by the tableau, apply the gate
+    U = (I + i YZZX) / sqrt(2)
+starting at the specified site. A measurement of XZZX is equivalent to applying
+U, measuring Z, then applying Ut.
+"""
+function XZZX_rotation_gate!(tableau::BitArray, site::Int, n::Int; conj=false)
+    CZ_gate!(tableau, site, site+1, n)
+    CZ_gate!(tableau, site, site+2, n)
+    cnot!(tableau, site, site+3, n)
+    X_gate!(tableau, site, n)
+    if conj
+        Z_gate!(tableau, site, n)
+    end
+    hadamard!(tableau, site, n)
+    if conj
+        Z_gate!(tableau, site, n)
+    end
+    cnot!(tableau, site, site+3, n)
+    CZ_gate!(tableau, site, site+2, n)
+    CZ_gate!(tableau, site, site+1, n)
 end
